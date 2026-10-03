@@ -1,0 +1,423 @@
+import os
+import secrets
+from datetime import date, datetime, timedelta
+from functools import wraps
+
+from flask import (
+    Flask,
+    abort,
+    flash,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
+from sqlalchemy.exc import IntegrityError
+
+from .models import Assignment, POSITIONS, Shift, User, db
+
+
+def create_app():
+    app = Flask(__name__)
+
+    database_url = os.getenv(
+        "DATABASE_URL",
+        "sqlite:////app/data/dienstplan.sqlite3",
+    )
+
+    app.config.update(
+        SECRET_KEY=os.getenv("SECRET_KEY"),
+        SQLALCHEMY_DATABASE_URI=database_url,
+        SQLALCHEMY_TRACK_MODIFICATIONS=False,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SECURE=os.getenv("FLASK_ENV") == "production",
+        SESSION_COOKIE_SAMESITE="Lax",
+        MAX_CONTENT_LENGTH=1024 * 1024,
+    )
+
+    if not app.config["SECRET_KEY"]:
+        raise RuntimeError("SECRET_KEY ist nicht gesetzt.")
+
+    db.init_app(app)
+
+    with app.app_context():
+        db.create_all()
+        create_initial_admin()
+
+    @app.context_processor
+    def inject_globals():
+        return {
+            "current_user": current_user(),
+            "positions": POSITIONS,
+        }
+
+    @app.before_request
+    def csrf_protection():
+        if "csrf_token" not in session:
+            session["csrf_token"] = secrets.token_urlsafe(32)
+
+        if request.method == "POST":
+            supplied = request.form.get("csrf_token")
+            expected = session.get("csrf_token")
+
+            if not supplied or not expected or supplied != expected:
+                abort(400, description="Ungültiges CSRF-Token.")
+
+    @app.template_filter("german_date")
+    def german_date(value):
+        weekdays = [
+            "Montag",
+            "Dienstag",
+            "Mittwoch",
+            "Donnerstag",
+            "Freitag",
+            "Samstag",
+            "Sonntag",
+        ]
+        months = [
+            "Januar",
+            "Februar",
+            "März",
+            "April",
+            "Mai",
+            "Juni",
+            "Juli",
+            "August",
+            "September",
+            "Oktober",
+            "November",
+            "Dezember",
+        ]
+        return (
+            f"{weekdays[value.weekday()]}, "
+            f"{value.day}. {months[value.month - 1]} {value.year}"
+        )
+
+    def login_required(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            user = current_user()
+            if not user:
+                return redirect(url_for("login", next=request.path))
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    def admin_required(view):
+        @wraps(view)
+        def wrapped(*args, **kwargs):
+            user = current_user()
+            if not user or not user.is_admin:
+                abort(403)
+            return view(*args, **kwargs)
+
+        return wrapped
+
+    @app.route("/login", methods=["GET", "POST"])
+    def login():
+        if request.method == "POST":
+            username = request.form.get("username", "").strip()
+            password = request.form.get("password", "")
+
+            user = User.query.filter_by(username=username).first()
+
+            if not user or not user.is_active or not user.check_password(password):
+                flash("Anmeldung fehlgeschlagen.", "error")
+                return render_template("login.html"), 401
+
+            session.clear()
+            session["user_id"] = user.id
+            session["csrf_token"] = secrets.token_urlsafe(32)
+
+            return redirect(url_for("schedule"))
+
+        return render_template("login.html")
+
+    @app.post("/logout")
+    def logout():
+        session.clear()
+        return redirect(url_for("login"))
+
+    @app.route("/")
+    @login_required
+    def schedule():
+        shifts = (
+            Shift.query.filter(Shift.date >= date.today())
+            .order_by(Shift.date.asc(), Shift.start_time.asc())
+            .all()
+        )
+        return render_template("schedule.html", shifts=shifts)
+
+    @app.post("/shift/<int:shift_id>/assign/<position>")
+    @login_required
+    def assign(shift_id, position):
+        if position not in POSITIONS:
+            abort(404)
+
+        user = current_user()
+        shift = db.get_or_404(Shift, shift_id)
+
+        existing_position = Assignment.query.filter_by(
+            shift_id=shift.id,
+            position=position,
+        ).first()
+
+        if existing_position:
+            flash("Diese Position ist bereits besetzt.", "error")
+            return redirect(url_for("schedule"))
+
+        existing_user = Assignment.query.filter_by(
+            shift_id=shift.id,
+            user_id=user.id,
+        ).first()
+
+        if existing_user:
+            flash("Du bist für diesen Dienst bereits eingetragen.", "error")
+            return redirect(url_for("schedule"))
+
+        # Konfigurierbare Regel:
+        # Ein Benutzer darf pro Samstag nur eine Position übernehmen.
+        one_position_per_saturday = os.getenv(
+            "ONE_POSITION_PER_SATURDAY",
+            "true",
+        ).lower() == "true"
+
+        if one_position_per_saturday:
+            same_day = (
+                db.session.query(Assignment)
+                .join(Shift)
+                .filter(
+                    Assignment.user_id == user.id,
+                    Shift.date == shift.date,
+                )
+                .first()
+            )
+
+            if same_day:
+                flash(
+                    "Du darfst pro Samstag nur eine Position übernehmen.",
+                    "error",
+                )
+                return redirect(url_for("schedule"))
+
+        assignment = Assignment(
+            shift_id=shift.id,
+            user_id=user.id,
+            position=position,
+        )
+
+        db.session.add(assignment)
+
+        try:
+            db.session.commit()
+            flash("Du wurdest eingetragen.", "success")
+        except IntegrityError:
+            db.session.rollback()
+            flash("Die Position wurde gerade bereits vergeben.", "error")
+
+        return redirect(url_for("schedule"))
+
+    @app.post("/assignment/<int:assignment_id>/remove")
+    @login_required
+    def remove_assignment(assignment_id):
+        assignment = db.get_or_404(Assignment, assignment_id)
+        user = current_user()
+
+        if assignment.user_id != user.id and not user.is_admin:
+            abort(403)
+
+        db.session.delete(assignment)
+        db.session.commit()
+
+        flash("Eintrag wurde entfernt.", "success")
+        return redirect(request.referrer or url_for("schedule"))
+
+    @app.route("/admin", methods=["GET", "POST"])
+    @admin_required
+    def admin():
+        if request.method == "POST":
+            action = request.form.get("action")
+
+            if action == "create_shift":
+                raw_date = request.form.get("date", "")
+                start_time = request.form.get("start_time", "06:00")
+                end_time = request.form.get("end_time", "11:00")
+                note = request.form.get("note", "").strip()
+
+                try:
+                    shift_date = datetime.strptime(
+                        raw_date,
+                        "%Y-%m-%d",
+                    ).date()
+                except ValueError:
+                    flash("Ungültiges Datum.", "error")
+                    return redirect(url_for("admin"))
+
+                if shift_date.weekday() != 5:
+                    flash("Das Datum muss ein Samstag sein.", "error")
+                    return redirect(url_for("admin"))
+
+                if start_time >= end_time:
+                    flash("Die Endzeit muss nach der Startzeit liegen.", "error")
+                    return redirect(url_for("admin"))
+
+                db.session.add(
+                    Shift(
+                        date=shift_date,
+                        start_time=start_time,
+                        end_time=end_time,
+                        note=note,
+                    )
+                )
+                db.session.commit()
+                flash("Diensttermin wurde angelegt.", "success")
+
+            elif action == "create_user":
+                username = request.form.get("username", "").strip()
+                password = request.form.get("password", "")
+                email = request.form.get("email", "").strip()
+                is_admin = request.form.get("is_admin") == "on"
+
+                if len(username) < 3 or len(password) < 12:
+                    flash(
+                        "Benutzername oder Passwort ist zu kurz.",
+                        "error",
+                    )
+                    return redirect(url_for("admin"))
+
+                if User.query.filter_by(username=username).first():
+                    flash("Dieser Benutzer existiert bereits.", "error")
+                    return redirect(url_for("admin"))
+
+                user = User(
+                    username=username,
+                    email=email,
+                    is_admin=is_admin,
+                    is_active=True,
+                )
+                user.set_password(password)
+
+                db.session.add(user)
+                db.session.commit()
+                flash("Benutzer wurde angelegt.", "success")
+
+            elif action == "generate_shifts":
+                amount = int(request.form.get("amount", "4"))
+                amount = max(1, min(amount, 52))
+
+                current = date.today()
+                days_until_saturday = (5 - current.weekday()) % 7
+                first = current + timedelta(days=days_until_saturday)
+
+                created = 0
+
+                for index in range(amount):
+                    shift_date = first + timedelta(days=index * 7)
+
+                    if not Shift.query.filter_by(date=shift_date).first():
+                        db.session.add(
+                            Shift(
+                                date=shift_date,
+                                start_time="06:00",
+                                end_time="11:00",
+                            )
+                        )
+                        created += 1
+
+                db.session.commit()
+                flash(f"{created} Termine wurden erzeugt.", "success")
+
+            elif action == "delete_shift":
+                shift = db.get_or_404(
+                    Shift,
+                    int(request.form.get("shift_id")),
+                )
+                db.session.delete(shift)
+                db.session.commit()
+                flash("Termin wurde gelöscht.", "success")
+
+            elif action == "toggle_user":
+                user = db.get_or_404(
+                    User,
+                    int(request.form.get("user_id")),
+                )
+
+                if user.id == current_user().id:
+                    flash("Der eigene Benutzer kann nicht deaktiviert werden.")
+                    return redirect(url_for("admin"))
+
+                user.is_active = not user.is_active
+                db.session.commit()
+                flash("Benutzerstatus wurde geändert.", "success")
+
+        shifts = Shift.query.order_by(Shift.date.asc()).all()
+        users = User.query.order_by(User.username.asc()).all()
+
+        return render_template(
+            "admin.html",
+            shifts=shifts,
+            users=users,
+        )
+
+    @app.errorhandler(403)
+    def forbidden(error):
+        return render_template(
+            "error.html",
+            title="Zugriff verweigert",
+            message="Du hast keine Berechtigung für diese Aktion.",
+        ), 403
+
+    @app.errorhandler(404)
+    def not_found(error):
+        return render_template(
+            "error.html",
+            title="Nicht gefunden",
+            message="Die angeforderte Seite wurde nicht gefunden.",
+        ), 404
+
+    @app.errorhandler(400)
+    def bad_request(error):
+        return render_template(
+            "error.html",
+            title="Ungültige Anfrage",
+            message="Die Anfrage konnte nicht verarbeitet werden.",
+        ), 400
+    
+    return app
+
+
+def current_user():
+    user_id = session.get("user_id")
+
+    if not user_id:
+        return None
+
+    return db.session.get(User, user_id)
+
+
+def create_initial_admin():
+    username = os.getenv("ADMIN_USERNAME")
+    password = os.getenv("ADMIN_PASSWORD")
+
+    if not username or not password:
+        return
+
+    if User.query.filter_by(username=username).first():
+        return
+
+    if len(password) < 12:
+        raise RuntimeError(
+            "ADMIN_PASSWORD muss mindestens 12 Zeichen lang sein."
+        )
+
+    admin = User(
+        username=username,
+        is_admin=True,
+        is_active=True,
+    )
+    admin.set_password(password)
+
+    db.session.add(admin)
+    db.session.commit()
+

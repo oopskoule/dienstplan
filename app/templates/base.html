@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="de">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Dienstplan{% endblock %}</title>
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+<nav class="navbar">
+    <a href="{{ url_for('schedule') }}">Dienstplan</a>
+
+    {% if current_user %}
+        <a href="{{ url_for('profile') }}">Passwort ändern</a>
+        <span>{{ current_user.username }}</span>
+
+        {% if current_user.is_admin %}
+            <a href="{{ url_for('admin') }}">Administration</a>
+        {% endif %}
+
+        <form method="post" action="{{ url_for('logout') }}">
+            <input
+                type="hidden"
+                name="csrf_token"
+                value="{{ session.get('csrf_token', '') }}"
+            >
+            <button type="submit">Abmelden</button>
+        </form>
+    {% endif %}
+</nav>
+
+<main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for category, message in messages %}
+            <div class="alert {{ category }}">{{ message }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+</main>
+</body>
+</html>
+

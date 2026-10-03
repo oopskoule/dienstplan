@@ -1,0 +1,30 @@
+services:
+  dienstplan:
+    build: .
+    restart: unless-stopped
+
+    env_file:
+      - .env
+
+    ports:
+      - "127.0.0.1:8000:8000"
+
+    volumes:
+      - ./data:/app/data
+
+    networks:
+      - semmelei_default
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=semmelei_default"
+      - "traefik.http.routers.dienstplan.rule=Host(`dienstplan.example.de`)"
+      - "traefik.http.routers.dienstplan.entrypoints=websecure"
+      - "traefik.http.routers.dienstplan.tls=true"
+      - "traefik.http.routers.dienstplan.tls.certresolver=DEIN_CERTRESOLVER"
+      - "traefik.http.services.dienstplan.loadbalancer.server.port=8000"
+
+networks:
+  semmelei_default:
+    external: true
+

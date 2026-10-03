@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <h1>Profil</h1>
+
+    <form method="post">
+	<input type="hidden" name="csrf_token" value="{{ session.get('csrf_token', '') }}">
+
+
+        <div class="mb-3">
+            <label for="current_password" class="form-label">
+                Aktuelles Passwort
+            </label>
+            <input
+                type="password"
+                class="form-control"
+                id="current_password"
+                name="current_password"
+                required
+                autocomplete="current-password"
+            >
+        </div>
+
+        <div class="mb-3">
+            <label for="new_password" class="form-label">
+                Neues Passwort
+            </label>
+            <input
+                type="password"
+                class="form-control"
+                id="new_password"
+                name="new_password"
+                minlength="12"
+                required
+                autocomplete="new-password"
+            >
+        </div>
+
+        <div class="mb-3">
+            <label for="new_password_confirm" class="form-label">
+                Neues Passwort wiederholen
+            </label>
+            <input
+                type="password"
+                class="form-control"
+                id="new_password_confirm"
+                name="new_password_confirm"
+                minlength="12"
+                required
+                autocomplete="new-password"
+            >
+        </div>
+
+        <button type="submit" class="btn btn-primary">
+            Passwort ändern
+        </button>
+    </form>
+</div>
+{% endblock %}
+

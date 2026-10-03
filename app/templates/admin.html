@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+
+{% block title %}Administration{% endblock %}
+
+{% block content %}
+<h1>Administration</h1>
+
+<div class="grid">
+    <section class="card">
+        <h2>Termine erzeugen</h2>
+
+        <form method="post">
+            <input type="hidden" name="csrf_token"
+                   value="{{ session.csrf_token }}">
+            <input type="hidden" name="action"
+                   value="generate_shifts">
+
+            <label for="amount">Anzahl kommende Samstage</label>
+            <input id="amount" name="amount" type="number"
+                   min="1" max="52" value="4">
+
+            <button class="primary" type="submit">
+                Termine erzeugen
+            </button>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>Termin anlegen</h2>
+
+        <form method="post">
+            <input type="hidden" name="csrf_token"
+                   value="{{ session.csrf_token }}">
+            <input type="hidden" name="action"
+                   value="create_shift">
+
+            <label>Datum</label>
+            <input name="date" type="date" required>
+
+            <label>Beginn</label>
+            <input name="start_time" type="time"
+                   value="06:00" required>
+
+            <label>Ende</label>
+            <input name="end_time" type="time"
+                   value="11:00" required>
+
+            <label>Notiz</label>
+            <textarea name="note"></textarea>
+
+            <button class="primary" type="submit">
+                Termin speichern
+            </button>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>Benutzer anlegen</h2>
+
+        <form method="post">
+            <input type="hidden" name="csrf_token"
+                   value="{{ session.csrf_token }}">
+            <input type="hidden" name="action"
+                   value="create_user">
+
+            <label>Benutzername</label>
+            <input name="username" minlength="3" required>
+
+            <label>E-Mail</label>
+            <input name="email" type="email">
+
+            <label>Passwort</label>
+            <input name="password" type="password"
+                   minlength="12" required>
+
+            <label class="checkbox">
+                <input name="is_admin" type="checkbox">
+                Administrator
+            </label>
+
+            <button class="primary" type="submit">
+                Benutzer speichern
+            </button>
+        </form>
+    </section>
+</div>
+
+<h2>Termine</h2>
+
+{% for shift in shifts %}
+<div class="card admin-row">
+    <span>
+        {{ shift.date|german_date }}
+        {{ shift.start_time }}–{{ shift.end_time }}
+    </span>
+
+    <form method="post">
+        <input type="hidden" name="csrf_token"
+               value="{{ session.csrf_token }}">
+        <input type="hidden" name="action"
+               value="delete_shift">
+        <input type="hidden" name="shift_id"
+               value="{{ shift.id }}">
+
+        <button class="danger" type="submit"
+                onclick="return confirm('Termin löschen?')">
+            Löschen
+        </button>
+    </form>
+</div>
+{% endfor %}
+
+<h2>Benutzer</h2>
+
+{% for user in users %}
+<div class="card admin-row">
+    <span>
+        {{ user.username }}
+        {% if user.is_admin %}(Admin){% endif %}
+        {% if not user.is_active %}(deaktiviert){% endif %}
+    </span>
+
+    <form method="post">
+        <input type="hidden" name="csrf_token"
+               value="{{ session.csrf_token }}">
+        <input type="hidden" name="action"
+               value="toggle_user">
+        <input type="hidden" name="user_id"
+               value="{{ user.id }}">
+
+        <button type="submit">
+            {% if user.is_active %}Deaktivieren{% else %}Aktivieren{% endif %}
+        </button>
+    </form>
+</div>
+{% endfor %}
+{% endblock %}
+
