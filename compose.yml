@@ -18,10 +18,10 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=semmelei_default"
-      - "traefik.http.routers.dienstplan.rule=Host(`dienstplan.example.de`)"
+      - "traefik.http.routers.dienstplan.rule=Host(`dienstplan.semmelei.de`)"
       - "traefik.http.routers.dienstplan.entrypoints=websecure"
       - "traefik.http.routers.dienstplan.tls=true"
-      - "traefik.http.routers.dienstplan.tls.certresolver=DEIN_CERTRESOLVER"
+      - "traefik.http.routers.dienstplan.tls.certresolver=letsencrypt"
       - "traefik.http.services.dienstplan.loadbalancer.server.port=8000"
 
 networks:
