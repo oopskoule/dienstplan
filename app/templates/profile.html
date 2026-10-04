@@ -4,6 +4,15 @@
 <div class="container">
     <h1>Profil</h1>
 
+    <p>bitte beachten:</p>
+    <p>
+      <ul>
+        <li>Verwende ein langes Passwort, auch Sonderzeichen, z.B. einen Satz</li>
+        <li>Verwende das Passwort nicht an anderer Stelle, bei anderen Anmeldungen</li>
+        <li>Ein Beispiel für ein sicheres Passwort wäre: MeinHundliebtBriefträger!</li>
+      </ul>
+    </p>
+
     <form method="post">
 	<input type="hidden" name="csrf_token" value="{{ session.get('csrf_token', '') }}">
 
