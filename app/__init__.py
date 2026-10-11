@@ -370,6 +370,23 @@ def create_app():
                 db.session.commit()
                 flash("Termin wurde gelöscht.", "success")
 
+            elif action == "reset_password":
+                user = db.get_or_404(
+                    User,
+                    int(request.form.get("user_id")),
+                )
+
+                if user.id == current_user().id:
+                    flash("Das eigene Passwort kann hier nicht zurückgesetzt werden.", "error")
+                    return redirect(url_for("admin"))
+
+                user.set_password("Passwortbitteanpassen")
+                db.session.commit()
+                flash(
+                        f"Passwort für {user.username} wurde zurückgesetzt auf: Passwortbitteanpassen ",
+                    "success",
+                )
+
             elif action == "toggle_user":
                 user = db.get_or_404(
                     User,

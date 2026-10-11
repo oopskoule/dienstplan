@@ -132,6 +132,22 @@
             {% if user.is_active %}Deaktivieren{% else %}Aktivieren{% endif %}
         </button>
     </form>
+    
+    <form method="post"
+          onsubmit="return confirm('Passwort für diesen Benutzer zurücksetzen?')">
+        <input type="hidden" name="csrf_token"
+               value="{{ session.csrf_token }}">
+        <input type="hidden" name="action"
+               value="reset_password">
+        <input type="hidden" name="user_id"
+               value="{{ user.id }}">
+
+        <button type="submit">
+            Passwort zurücksetzen
+        </button>
+    </form>
+
+
 </div>
 {% endfor %}
 {% endblock %}
