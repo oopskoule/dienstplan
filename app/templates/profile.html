@@ -3,6 +3,7 @@
 {% block content %}
 <div class="container">
     <h1>Profil</h1>
+
     <p>bitte beachten:</p>
     <p>
       <ul>
@@ -11,6 +12,7 @@
         <li>Ein Beispiel für ein sicheres Passwort wäre: MeinHundliebtBriefträger!</li>
       </ul>
     </p>
+
     <form method="post">
 	<input type="hidden" name="csrf_token" value="{{ session.get('csrf_token', '') }}">
 
